@@ -167,7 +167,7 @@ export const getAdminReviews = async (req, res, next) => {
     const [reviews, total] = await Promise.all([
       Review.find(filter)
         .populate("user", "firstName lastName email")
-        .populate("product", "name slug")
+        .populate("product", "name slug images")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit),

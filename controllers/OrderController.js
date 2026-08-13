@@ -286,10 +286,35 @@ export const updateOrderStatus = async (req, res, next) => {
     if (req.body.orderStatus) order.orderStatus = req.body.orderStatus;
     if (req.body.paymentStatus) order.paymentStatus = req.body.paymentStatus;
 
+    // Prevent unsafe reopen / cancel transitions that corrupt inventory
+    if (prevStatus === "CANCELLED" && order.orderStatus !== "CANCELLED") {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: "Cancelled orders cannot be reopened",
+      });
+    }
+
+    if (
+      order.orderStatus === "CANCELLED" &&
+      prevStatus === "DELIVERED"
+    ) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: "Delivered orders cannot be cancelled",
+      });
+    }
+
+    const canRestoreStock = ["PENDING", "CONFIRMED", "PROCESSING"].includes(
+      prevStatus
+    );
+
     if (
       order.orderStatus === "CANCELLED" &&
       prevStatus !== "CANCELLED" &&
-      !order.stockRestored
+      !order.stockRestored &&
+      canRestoreStock
     ) {
       await restoreStock(order, session);
     }
@@ -297,10 +322,15 @@ export const updateOrderStatus = async (req, res, next) => {
     await order.save({ session });
     await session.commitTransaction();
 
+    const populated = await Order.findById(order._id).populate(
+      "user",
+      "firstName lastName email phone"
+    );
+
     return res.status(200).json({
       success: true,
       message: "Order status updated",
-      data: { order },
+      data: { order: populated },
     });
   } catch (error) {
     await session.abortTransaction();
